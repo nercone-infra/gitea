@@ -1,0 +1,112 @@
+services:
+  ruconet:
+    container_name: gitea-ruconet
+    image: ghcr.io/nercone-infra/ruconet-node:latest
+    restart: unless-stopped
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: 1
+    dns:
+      - 127.0.0.1
+    dns_opt:
+      - trust-ad
+    environment:
+      - RUCONET_NAME=gitea
+      - RUCONET_PRIVATE_KEY=${RUCONET_PRIVATE_KEY:?RUCONET_PRIVATE_KEY is required}
+      - RUCONET_PRESHARED_KEY=${RUCONET_PRESHARED_KEY:?RUCONET_PRESHARED_KEY is required}
+      - RUCONET_HUB_PUBLIC_KEY=${RUCONET_HUB_PUBLIC_KEY:?RUCONET_HUB_PUBLIC_KEY is required}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ruconet-node", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  cert:
+    container_name: gitea-cert
+    image: ghcr.io/nercone-infra/ruconet-cert:latest
+    restart: unless-stopped
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    network_mode: service:ruconet
+    volumes:
+      - ./data/certs:/etc/certs
+    environment:
+      - CERT_BUNDLES=ruconet
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/cert-agent", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      ruconet:
+        condition: service_started
+        restart: true
+
+  tls:
+    container_name: gitea-tls
+    image: ghcr.io/nercone-infra/ruconet-tls:latest
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    network_mode: service:ruconet
+    volumes:
+      - ./tls:/etc/nginx.d:ro
+      - ./data/certs:/etc/certs:ro
+    depends_on:
+      ruconet:
+        condition: service_started
+        restart: true
+
+  gitea:
+    container_name: gitea
+    image: gitea/gitea:1.27
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    network_mode: service:ruconet
+    volumes:
+      - ./data/gitea:/data
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - SSH_LISTEN_PORT=2222
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=127.0.0.1:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=gitea
+      - GITEA__database__PASSWD=${GITEA_DB_PASSWORD}
+      - GITEA__database__SSL_MODE=disable
+      - GITEA__server__DOMAIN=git.nercone.dev
+      - GITEA__server__ROOT_URL=https://git.nercone.dev/
+      - GITEA__server__HTTP_ADDR=127.0.0.1
+      - GITEA__server__SSH_PORT=22
+      - GITEA__server__SSH_LISTEN_PORT=2222
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      ruconet:
+        condition: service_started
+        restart: true
