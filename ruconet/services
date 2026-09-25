@@ -1,0 +1,5 @@
+# TYPE    LISTEN            TARGET            OPTIONS
+server    443               127.0.0.1:3000    timeout=5m
+server    22                127.0.0.1:2222    timeout=1h
+
+client    127.0.0.1:5432    db:5432           timeout=12h
